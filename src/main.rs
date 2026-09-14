@@ -5,6 +5,7 @@ use std::println;
 use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 use rand::seq::SliceRandom;
+use rand::Rng;
 use node::{Node};
 use hex::encode;
 use hmac::{Hmac, KeyInit, Mac};
@@ -12,7 +13,7 @@ use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
 
-const THRESHOLD:u64 = (u64::MAX as f64 * 0.2) as u64;
+const THRESHOLD:u64 = (u64::MAX as f64 * 0.8) as u64;
 fn main() {
 
     let mut rng= OsRng{};
@@ -28,6 +29,7 @@ fn main() {
             id: n as u32,
             signing_key: SigningKey::generate(&mut rng),
             is_malicious: malicious_nodes.iter().any(|x| x == &n),
+            trust_score: 1.0,
         };
 
         println!("Node id- {}, Public Key- {}",
@@ -42,8 +44,11 @@ fn main() {
         let mut validators = Vec::new();
 
         for node in nodes.iter() {
+            if node.trust_score<=0.0{
+                continue;
+            }
             let vrf_output = compute_vrf(&node, round);
-            let is_validator = validator_selection(vrf_output);
+            let is_validator = validator_selection(vrf_output, node.trust_score);
             // println!("Node id- {}, VRF- {}, Is Validator- {}",
                 // node.id, vrf_output, is_validator);
 
@@ -52,12 +57,37 @@ fn main() {
             }
         }
 
-        let malicious_validators = validators.iter().any(|node| malicious_nodes.contains(node));
-    
+        let malicious_validators_id: Vec<u32> = validators.iter().filter(|node| malicious_nodes.contains(node)).cloned().collect();
+        let honest_nodes_count = validators.iter().filter(|node| !malicious_nodes.contains(node)).count();
+
+        //simulating probability ofcatching malicious validators based on number of honest validators in the committee
+        let probability_of_malicious_nodes_getting_caught= match honest_nodes_count{ 
+            0 => 0.0,
+            1 => 0.3,
+            2..=3 => 0.6,
+            _ => 0.9,
+        };
+
+        for malicious_validator in malicious_validators_id.iter() {
+            let random_value: f64 = rng.gen_range(0.0..=1.0);
+            if random_value < probability_of_malicious_nodes_getting_caught {
+                if let Some(node)=nodes.iter_mut().find(|n| n.id==*malicious_validator){
+                    node.trust_score=(node.trust_score-0.5).max(0.0);
+                }
+            }
+        }
         // println!("Validators for round 1: {:?}", validators);
         // println!("Malicious Validators for round 1: {:?}", malicious_validators);
-        if(malicious_validators){
+        if !malicious_validators_id.is_empty(){
             number_of_times_malicious_validator+=1;
+        }
+
+        for validator_id in validators.iter(){
+            if !malicious_validators_id.contains(validator_id){
+                if let Some(node)=nodes.iter_mut().find(|n| n.id==*validator_id){
+                    node.trust_score=(node.trust_score+0.1).min(2.0);
+                }
+            }
         }
     }
 
@@ -74,6 +104,7 @@ fn compute_vrf(node: &Node, round: u32) -> u64{
     u64::from_be_bytes(res[0..8].try_into().unwrap())
 }
 
-fn validator_selection(vrf_output: u64) -> bool {
-    vrf_output < THRESHOLD
+fn validator_selection(vrf_output: u64, trust_score: f64) -> bool {
+    let effective_threshold = (THRESHOLD as f64)* (1.0/trust_score);
+    vrf_output > effective_threshold as u64
 }
