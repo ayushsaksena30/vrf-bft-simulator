@@ -13,7 +13,6 @@ use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
 
-const THRESHOLD:u64 = (u64::MAX as f64 * 0.8) as u64;
 fn main() {
 
     let mut rng= OsRng{};
@@ -44,9 +43,6 @@ fn main() {
         let mut validators = Vec::new();
 
         for node in nodes.iter() {
-            if node.trust_score<=0.0{
-                continue;
-            }
             let vrf_output = compute_vrf(&node, round);
             let is_validator = validator_selection(vrf_output, node.trust_score);
             // println!("Node id- {}, VRF- {}, Is Validator- {}",
@@ -72,7 +68,7 @@ fn main() {
             let random_value: f64 = rng.gen_range(0.0..=1.0);
             if random_value < probability_of_malicious_nodes_getting_caught {
                 if let Some(node)=nodes.iter_mut().find(|n| n.id==*malicious_validator){
-                    node.trust_score=(node.trust_score-0.5).max(0.0);
+                    node.trust_score=(node.trust_score-0.2).max(0.15);
                 }
             }
         }
@@ -85,7 +81,7 @@ fn main() {
         for validator_id in validators.iter(){
             if !malicious_validators_id.contains(validator_id){
                 if let Some(node)=nodes.iter_mut().find(|n| n.id==*validator_id){
-                    node.trust_score=(node.trust_score+0.1).min(2.0);
+                    node.trust_score=(node.trust_score+0.05).min(2.0);
                 }
             }
         }
@@ -105,6 +101,7 @@ fn compute_vrf(node: &Node, round: u32) -> u64{
 }
 
 fn validator_selection(vrf_output: u64, trust_score: f64) -> bool {
-    let effective_threshold = (THRESHOLD as f64)* (1.0/trust_score);
+    let base_rate =0.2;
+    let effective_threshold = (u64::MAX as f64)* (1.0-base_rate*trust_score);
     vrf_output > effective_threshold as u64
 }
