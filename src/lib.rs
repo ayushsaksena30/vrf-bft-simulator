@@ -5,7 +5,6 @@ use rand::rngs::OsRng;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use node::{Node};
-use hex::encode;
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use serde::{Serialize, Deserialize};
@@ -24,7 +23,10 @@ pub struct RoundSnapshot {
 pub struct SimulationResult {
     snapshots: Vec<RoundSnapshot>,
     malicious_selection_count: u32,
+    malicious_node_ids: Vec<u32>,
     probability: f64,
+    baseline_probability: f64,
+    reduction_percentage: f64,
 }
 
 #[wasm_bindgen]
@@ -53,7 +55,8 @@ pub fn run_simulation(total_nodes: u32, malicious_nodes_count: u32, rounds: u32,
         nodes.push(node);
     }
 
-    let mut number_of_times_malicious_validator=0;
+    let mut total_validator_seats=0;
+    let mut total_malicious_validator_seats=0;
     let mut round_snapshots:Vec<RoundSnapshot> = Vec::new();
 
     for round in 1..=rounds{
@@ -93,7 +96,8 @@ pub fn run_simulation(total_nodes: u32, malicious_nodes_count: u32, rounds: u32,
         }
         
         if !malicious_validators_id.is_empty(){
-            number_of_times_malicious_validator+=1;
+            total_validator_seats+= validators.len() as u32;
+            total_malicious_validator_seats+= malicious_validators_id.len() as u32;
         }
 
         for validator_id in validators.iter(){
@@ -112,10 +116,16 @@ pub fn run_simulation(total_nodes: u32, malicious_nodes_count: u32, rounds: u32,
         round_snapshots.push(RoundSnapshot { validators, slashed_nodes, trust_scores});
     }
 
+    let vrf_probability= if total_validator_seats>0 {(total_malicious_validator_seats as f64)/(total_validator_seats as f64)} else {0.0};
+    let baseline_probability= (malicious_nodes_count as f64)/(total_nodes as f64);
+    let reduction_percentage= if baseline_probability>0.0 {(baseline_probability-vrf_probability)/baseline_probability*100.0} else {0.0};
     let result = SimulationResult{
         snapshots: round_snapshots,
-        malicious_selection_count: number_of_times_malicious_validator,
-        probability: (number_of_times_malicious_validator as f64)/(rounds as f64),
+        malicious_selection_count: total_malicious_validator_seats as u32,
+        malicious_node_ids: malicious_nodes,
+        probability: vrf_probability,
+        baseline_probability,
+        reduction_percentage,
     };
 
     serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
