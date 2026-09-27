@@ -1,7 +1,8 @@
 [package]
 name = "vrf-bft-simulator"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
+repository = "https://github.com/ayushsaksena30/vrf-bft-simulator-rust"
 
 [lib]
 crate-type = ["cdylib","rlib"]
